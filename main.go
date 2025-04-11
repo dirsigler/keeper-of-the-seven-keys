@@ -67,7 +67,7 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Print to the logs
-	log.Printf("Received Eventarc Payload:\n%s", string(prettyJSON))
+	log.Printf("Received Eventarc Payload:%s", string(prettyJSON))
 
 	// Respond to the request
 	fmt.Fprintf(w, "Event received and logged successfully.")
