@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 )
@@ -14,25 +14,31 @@ import (
 type EventarcPayload map[string]interface{}
 
 func main() {
+	// Configure slog to output JSON
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	// Determine the port for HTTP service.
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
-		log.Printf("Defaulting to port %s", port)
+		slog.Info("Defaulting to port", "port", port)
 	}
 
 	http.HandleFunc("/", eventHandler)
 
-	log.Printf("Listening on port %s", port)
+	slog.Info("Listening on port", "port", port)
 
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		slog.Error("Failed to start server", "error", err)
+		os.Exit(1)
 	}
 }
 
 func eventHandler(w http.ResponseWriter, r *http.Request) {
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
+		slog.Error("Invalid request method", "method", r.Method)
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 
 		return
@@ -41,7 +47,7 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Failed to read request body: %v", err)
+		slog.Error("Failed to read request body", "error", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 
 		return
@@ -51,23 +57,14 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 	// Unmarshal the JSON payload
 	var payload EventarcPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		log.Printf("Failed to unmarshal JSON payload: %v", err)
+		slog.Error("Failed to unmarshal JSON payload", "error", err)
 		http.Error(w, "Failed to unmarshal JSON payload", http.StatusBadRequest)
 
 		return
 	}
 
-	// Pretty print the payload
-	prettyJSON, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		log.Printf("Failed to marshal JSON for pretty printing: %v", err)
-		http.Error(w, "Failed to format JSON", http.StatusInternalServerError)
-
-		return
-	}
-
-	// Print to the logs
-	log.Printf("Received Eventarc Payload:%s", string(prettyJSON))
+	// Log the payload directly as structured data
+	slog.Info("Received Eventarc Payload", "payload", payload)
 
 	// Respond to the request
 	fmt.Fprintf(w, "Event received and logged successfully.")
