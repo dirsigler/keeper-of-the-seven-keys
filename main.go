@@ -1,16 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
+
+	kms "cloud.google.com/go/kms/apiv1"
+	"cloud.google.com/go/kms/apiv1/kmspb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 // EventarcPayload represents the structure of the Eventarc JSON payload.
-// We'll use an interface{} to handle the dynamic nature of the payload.
 type EventarcPayload map[string]interface{}
 
 func main() {
@@ -66,6 +72,76 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 	// Log the payload directly as structured data
 	slog.Info("Received Eventarc Payload", "payload", payload)
 
+	// Extract relevant information from the payload
+	cryptoKeyName, ok := extractCryptoKeyName(payload)
+	if !ok {
+		slog.Error("Failed to extract crypto key name from payload")
+		http.Error(w, "Failed to extract crypto key name from payload", http.StatusBadRequest)
+
+		return
+	}
+
+	// Update the rotation period
+	if err := updateCryptoKeyRotationPeriod(cryptoKeyName); err != nil {
+		slog.Error("Failed to update crypto key rotation period", "error", err, "cryptoKeyName", cryptoKeyName)
+		http.Error(w, "Failed to update crypto key rotation period", http.StatusInternalServerError)
+
+		return
+	}
+
 	// Respond to the request
-	fmt.Fprintf(w, "Event received and logged successfully.")
+	fmt.Fprintf(w, "Event received and processed successfully.")
+}
+
+// extractCryptoKeyName extracts the crypto key name from the Eventarc payload.
+func extractCryptoKeyName(payload EventarcPayload) (string, bool) {
+	protoPayload, ok := payload["protoPayload"].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+
+	resourceName, ok := protoPayload["resourceName"].(string)
+	if !ok {
+		return "", false
+	}
+
+	return resourceName, true
+}
+
+// updateCryptoKeyRotationPeriod updates the rotation period of a crypto key to 90 days.
+func updateCryptoKeyRotationPeriod(cryptoKeyName string) error {
+	ctx := context.Background()
+
+	client, err := kms.NewKeyManagementClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create kms client: %v", err)
+	}
+
+	defer client.Close()
+
+	// Set the new rotation period to 90 days
+	rotationPeriod := durationpb.New(90 * 24 * time.Hour)
+
+	// Build the update request
+	req := &kmspb.UpdateCryptoKeyRequest{
+		CryptoKey: &kmspb.CryptoKey{
+			Name: cryptoKeyName,
+			RotationSchedule: &kmspb.CryptoKey_RotationPeriod{
+				RotationPeriod: rotationPeriod,
+			},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{
+			Paths: []string{"rotation_period"},
+		},
+	}
+
+	// Update the crypto key
+	_, err = client.UpdateCryptoKey(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to update crypto key: %v", err)
+	}
+
+	slog.Info("Successfully updated crypto key rotation period", "cryptoKeyName", cryptoKeyName, "rotationPeriod", rotationPeriod.AsDuration().String())
+
+	return nil
 }
