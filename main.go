@@ -28,7 +28,7 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
-		slog.Info("Defaulting to port", "port", port)
+		slog.Debug("Defaulting to port", "port", port)
 	}
 
 	http.HandleFunc("/", eventHandler)
@@ -70,7 +70,7 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log the payload directly as structured data
-	slog.Info("Received Eventarc Payload", "payload", payload)
+	slog.Debug("Received Eventarc Payload", "payload", payload)
 
 	// Extract relevant information from the payload
 	cryptoKeyName, ok := extractCryptoKeyName(payload)
